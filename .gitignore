@@ -1,0 +1,32 @@
+﻿# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+dist/
+build/
+.venv/
+venv/
+env/
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Runtime / logs / model artifacts
+*.log
+.cache/
+runs/
+weights/
+*.pt
+*.onnx
+*.engine
+
+# Local secrets
+.env
+*.local.cgf
