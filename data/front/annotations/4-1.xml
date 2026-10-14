@@ -1,0 +1,26 @@
+<annotation>
+	<folder>front</folder>
+	<filename>4-1.jpg</filename>
+	<path>D:\项目\jushenxiaci\data\front\4-1.jpg</path>
+	<source>
+		<database>Unknown</database>
+	</source>
+	<size>
+		<width>1280</width>
+		<height>720</height>
+		<depth>3</depth>
+	</size>
+	<segmented>0</segmented>
+	<object>
+		<name>flaw</name>
+		<pose>Unspecified</pose>
+		<truncated>0</truncated>
+		<difficult>0</difficult>
+		<bndbox>
+			<xmin>297</xmin>
+			<ymin>157</ymin>
+			<xmax>1046</xmax>
+			<ymax>538</ymax>
+		</bndbox>
+	</object>
+</annotation>
