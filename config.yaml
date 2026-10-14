@@ -1,0 +1,95 @@
+# 巨神瑕疵检测系统配置文件
+
+system:
+  name: "具身智能瑕疵检测系统"
+  version: "1.2.0"
+  author: "JuShen AI Lab"
+  description: "工业产品三码比对与视觉瑕疵检测系统"
+
+paths:
+  data_root: "data"
+  mes_database: "MES-ID.cgf"
+  model_weights: "models/best.pt"
+  log_directory: "logs"
+
+detection:
+  # 模型推理配置
+  model:
+    type: "yolov11n"
+    device: "auto"  # auto / cpu / cuda / cuda:0
+    conf_threshold: 0.25
+    iou_threshold: 0.45
+    max_detections: 100
+  
+  # 图像预处理
+  preprocessing:
+    target_size: 640
+    normalize: true
+    augment: false
+  
+  # 后处理
+  postprocessing:
+    nms_method: "standard"  # standard / soft / fast
+    draw_boxes: true
+    draw_labels: true
+    box_thickness: 2
+    font_scale: 0.6
+
+barcode:
+  # 条码识别配置
+  qr_code:
+    enabled: true
+    enhancement: true
+    multi_scale: true
+  
+  code128:
+    enabled: true
+    enhancement: true
+    retry_on_fail: true
+
+mes:
+  # MES数据库配置
+  cache_enabled: true
+  case_sensitive: false
+  auto_reload: false
+
+ui:
+  # 界面配置
+  theme: "dark"  # dark / light
+  image_panel:
+    width: 340
+    height: 260
+  
+  colors:
+    background: "#1a2332"
+    panel: "#243044"
+    text: "#e8eef6"
+    accent: "#2ea8ff"
+    success: "#2ecc71"
+    error: "#e74c3c"
+    warning: "#f39c12"
+
+logging:
+  # 日志配置
+  level: "INFO"  # DEBUG / INFO / WARNING / ERROR
+  console: true
+  file: true
+  max_file_size: 10485760  # 10MB
+  backup_count: 5
+
+performance:
+  # 性能配置
+  enable_gpu: true
+  batch_size: 1
+  num_workers: 4
+  prefetch: true
+  
+  # 时间模拟（调试用）
+  simulate_delays: true
+  time_factor: 1.0  # 时间系数，1.0为正常速度
+
+experimental:
+  # 实验性功能
+  enable_tracking: false
+  enable_ocr: false
+  enable_classification: false

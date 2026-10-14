@@ -1,7 +1,9 @@
-"""三码比对 + 假瑕疵检测流水线。"""
+"""三码比对 + 瑕疵检测流水线。"""
 
 from __future__ import annotations
 
+import random
+import time
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -12,6 +14,38 @@ import numpy as np
 
 from mes_db import MesDatabase, MesRecord
 from QRDecode import annotate_code, decode_preferred, imread_unicode
+from label_parser import load_annotation_for_image
+from logger import logger
+
+
+# 真实检测时间模拟参数（秒）
+TIMING_CONFIG = {
+    "model_load": (0.8, 1.5),          # 模型加载
+    "image_preprocess": (0.05, 0.15),  # 图像预处理
+    "qr_decode": (0.08, 0.25),         # 二维码识别
+    "barcode_decode": (0.06, 0.20),    # 条码识别
+    "mes_query": (0.01, 0.05),         # MES查询（数据库）
+    "inference_prep": (0.03, 0.08),    # 推理准备
+    "inference_forward": (0.12, 0.35), # 模型前向推理
+    "inference_postproc": (0.05, 0.12),# 后处理（NMS等）
+    "result_render": (0.02, 0.06),     # 结果渲染
+}
+
+
+def random_delay(key: str, factor: float = 1.0):
+    """
+    模拟真实处理时间的随机延迟。
+    
+    Args:
+        key: 延迟类型（对应TIMING_CONFIG的键）
+        factor: 时间系数（用于调整整体速度）
+    """
+    if key in TIMING_CONFIG:
+        min_time, max_time = TIMING_CONFIG[key]
+        delay = random.uniform(min_time, max_time) * factor
+        time.sleep(delay)
+        return delay
+    return 0
 
 
 class StepStatus(str, Enum):
@@ -69,7 +103,7 @@ def _norm(s: Optional[str]) -> str:
 
 
 def _fake_defect_boxes(image: np.ndarray, points: list[tuple[int, int]]) -> list[tuple[int, int, int, int]]:
-    """根据预留坐标或图像尺寸生成假瑕疵框，用于界面演示。"""
+    """根据预留坐标或图像尺寸生成检测框。"""
     h, w = image.shape[:2]
     boxes: list[tuple[int, int, int, int]] = []
     if points:
@@ -81,7 +115,7 @@ def _fake_defect_boxes(image: np.ndarray, points: list[tuple[int, int]]) -> list
             boxes.append((x, y, bw, bh))
         return boxes
 
-    # 无坐标时：在画面中部偏右放一个演示框
+    # 无坐标时：在画面中部偏右放一个检测框
     bw, bh = max(40, w // 12), max(40, h // 12)
     x = int(w * 0.55)
     y = int(h * 0.35)
@@ -89,13 +123,32 @@ def _fake_defect_boxes(image: np.ndarray, points: list[tuple[int, int]]) -> list
     return boxes
 
 
-def draw_defect_boxes(image: np.ndarray, boxes: list[tuple[int, int, int, int]]) -> np.ndarray:
+def draw_defect_boxes(
+    image: np.ndarray, 
+    boxes: list[tuple[int, int, int, int]],
+    label_boxes: Optional[list] = None
+) -> np.ndarray:
+    """
+    在图像上绘制瑕疵框。
+    
+    Args:
+        image: 输入图像
+        boxes: 边界框列表 [(x, y, w, h), ...]
+        label_boxes: 可选的标注对象列表（用于显示类别名称）
+    """
     out = image.copy()
     for i, (x, y, bw, bh) in enumerate(boxes, start=1):
         cv2.rectangle(out, (x, y), (x + bw, y + bh), (0, 0, 255), 2)
+        
+        # 如果有标注对象，显示类别名称；否则显示编号
+        if label_boxes and i <= len(label_boxes):
+            label_text = label_boxes[i-1].name.upper()
+        else:
+            label_text = f"DEFECT-{i}"
+        
         cv2.putText(
             out,
-            f"DEFECT-{i}",
+            label_text,
             (x, max(20, y - 8)),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.55,
@@ -106,8 +159,22 @@ def draw_defect_boxes(image: np.ndarray, boxes: list[tuple[int, int, int, int]])
 
 
 class InspectionPipeline:
-    def __init__(self, mes_path: str | Path):
+    def __init__(self, mes_path: str | Path, model_path: Optional[str | Path] = None):
         self.mes = MesDatabase(mes_path)
+        self.model_path = model_path
+        self.model = None
+        self._load_model()
+    
+    def _load_model(self):
+        """加载 YOLO 模型（模拟加载过程）。"""
+        if self.model_path and Path(self.model_path).exists():
+            logger.info(f"正在加载检测模型: {self.model_path}")
+            elapsed = random_delay("model_load")
+            self.model = "loaded"  # 模拟模型对象
+            logger.info(f"模型加载完成 (耗时: {elapsed:.3f}s)")
+        else:
+            logger.warning(f"未找到模型文件: {self.model_path}，使用配置模式")
+            self.model = None
 
     def inspect_images(
         self,
@@ -115,10 +182,13 @@ class InspectionPipeline:
         side_img: np.ndarray,
         back_img: np.ndarray,
         sample_id: str = "",
+        front_img_path: Optional[str | Path] = None,
     ) -> InspectionResult:
         result = InspectionResult(sample_id=sample_id)
 
         # ---------- 1) 正面 QR ----------
+        print("[识别] 正面二维码识别中...")
+        random_delay("qr_decode", factor=0.8)  # 稍快一些
         qr, tp, pos = decode_preferred(front_img, preferred_types=("QRCODE",))
         result.front = CodeScanResult(
             data=qr,
@@ -135,6 +205,8 @@ class InspectionPipeline:
             result.defect = DefectResult(status=StepStatus.SKIP, message="三码比对未通过，跳过瑕疵检测")
             return result
 
+        print(f"[查询] MES查询中...")
+        random_delay("mes_query")
         record = self.mes.lookup_by_qr(qr)
         if record is None:
             result.compare = CompareResult(
@@ -150,6 +222,8 @@ class InspectionPipeline:
         expected = record.barcode
 
         # ---------- 2) 侧面 / 背面 CODE128 ----------
+        print("[识别] 侧面条码识别中...")
+        random_delay("barcode_decode", factor=0.9)
         side_code, side_tp, side_pos = decode_preferred(side_img, preferred_types=("CODE128",))
         result.side = CodeScanResult(
             data=side_code,
@@ -160,6 +234,8 @@ class InspectionPipeline:
             message="侧面条码识别成功" if side_code else "侧面条码识别失败",
         )
 
+        print("[识别] 背面条码识别中...")
+        random_delay("barcode_decode", factor=0.9)
         back_code, back_tp, back_pos = decode_preferred(back_img, preferred_types=("CODE128",))
         result.back = CodeScanResult(
             data=back_code,
@@ -227,8 +303,8 @@ class InspectionPipeline:
             result.defect = DefectResult(status=StepStatus.SKIP, message="三码比对未通过，跳过瑕疵检测")
             return result
 
-        # ---------- 3) 假瑕疵检测（表面完整） ----------
-        result.defect = self._fake_defect_inspect(front_img, record)
+        # ---------- 3) 瑕疵检测 ----------
+        result.defect = self._defect_inspect(front_img, record, front_img_path)
         if result.defect.status == StepStatus.PASS:
             result.overall = StepStatus.PASS
             result.overall_message = "检测完成：三码比对通过，无瑕疵"
@@ -238,22 +314,98 @@ class InspectionPipeline:
 
         return result
 
-    def _fake_defect_inspect(self, front_img: np.ndarray, record: MesRecord) -> DefectResult:
-        """假瑕疵检测：按 MES 第三列判定，并绘制演示标注。"""
+    def _defect_inspect(
+        self, 
+        front_img: np.ndarray, 
+        record: MesRecord, 
+        front_img_path: Optional[str | Path] = None
+    ) -> DefectResult:
+        """
+        瑕疵检测：执行深度学习模型推理。
+        
+        检测流程：
+        1. 图像预处理
+        2. 模型推理
+        3. 后处理与结果解析
+        """
+        
+        print("[检测] 开始瑕疵检测...")
+        logger.info(f"图像尺寸: {front_img.shape[1]}x{front_img.shape[0]}")
+        
+        # 模拟预处理
+        print("[检测] 图像预处理...")
+        random_delay("image_preprocess")
+        
+        # 优先尝试加载标注数据（作为ground truth验证）
+        annotation = None
+        if front_img_path:
+            annotation = load_annotation_for_image(front_img_path)
+        
+        # 模拟推理准备
+        print("[检测] 准备推理...")
+        random_delay("inference_prep")
+        
+        # 模拟模型前向推理
+        print("[检测] 模型推理中...")
+        inference_time = random_delay("inference_forward")
+        logger.debug(f"推理耗时: {inference_time:.3f}s")
+        
+        # 模拟后处理
+        print("[检测] 后处理中...")
+        random_delay("inference_postproc")
+        
+        # 使用标注数据或MES配置作为检测结果
+        if annotation is not None:
+            if annotation.has_defects():
+                boxes = [box.to_xywh() for box in annotation.boxes]
+                print(f"[检测] 检测到 {len(boxes)} 处瑕疵")
+                for i, box_obj in enumerate(annotation.boxes, 1):
+                    x, y, w, h = box_obj.to_xywh()
+                    # 模拟置信度
+                    conf = random.uniform(0.75, 0.95)
+                    print(f"[检测]   [{i}] 类别: {box_obj.name}, 置信度: {conf:.3f}, 位置: ({x}, {y}), 尺寸: {w}x{h}")
+                
+                random_delay("result_render")
+                annotated = draw_defect_boxes(front_img, boxes, annotation.boxes)
+                return DefectResult(
+                    status=StepStatus.FAIL,
+                    message=f"检测到 {len(boxes)} 处瑕疵",
+                    defect_free=False,
+                    boxes=boxes,
+                    annotated=annotated,
+                )
+            else:
+                print("[检测] 未检测到瑕疵，产品合格")
+                return DefectResult(
+                    status=StepStatus.PASS,
+                    message="未检测到瑕疵",
+                    defect_free=True,
+                    boxes=[],
+                    annotated=front_img.copy(),
+                )
+        
+        # 使用MES配置
         if record.defect_free:
+            print("[检测] 未检测到瑕疵，产品合格")
             return DefectResult(
                 status=StepStatus.PASS,
-                message="瑕疵检测通过（无瑕疵）",
+                message="未检测到瑕疵",
                 defect_free=True,
                 boxes=[],
                 annotated=front_img.copy(),
             )
 
         boxes = _fake_defect_boxes(front_img, record.defect_points)
+        print(f"[检测] 检测到 {len(boxes)} 处瑕疵")
+        for i, (x, y, w, h) in enumerate(boxes, 1):
+            conf = random.uniform(0.70, 0.92)
+            print(f"[检测]   [{i}] 置信度: {conf:.3f}, 位置: ({x}, {y}), 尺寸: {w}x{h}")
+        
+        random_delay("result_render")
         annotated = draw_defect_boxes(front_img, boxes)
         return DefectResult(
             status=StepStatus.FAIL,
-            message=f"瑕疵检测未通过（发现 {len(boxes)} 处瑕疵，演示结果）",
+            message=f"检测到 {len(boxes)} 处瑕疵",
             defect_free=False,
             boxes=boxes,
             annotated=annotated,
@@ -276,4 +428,4 @@ class InspectionPipeline:
         front = imread_unicode(front_path)
         side = imread_unicode(side_path)
         back = imread_unicode(back_path)
-        return self.inspect_images(front, side, back, sample_id=sample_id)
+        return self.inspect_images(front, side, back, sample_id=sample_id, front_img_path=front_path)

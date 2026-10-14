@@ -30,6 +30,7 @@
 - 输出：缺陷类别、置信度、边界框坐标；无检出则为 OK  
 - 结果可视化：在界面叠加缺陷框与 OK / NG 结论  
 - 与 MES 联动：检测结果可回写/对照 MES 瑕疵标记，支持产线追溯
+- **标注文件支持**：优先使用 LabelImg 标注文件（`.xml`），提供更精确的瑕疵框展示
 
 ### 3. 模型训练
 
@@ -47,11 +48,14 @@ JuShen-xiaci-detect/
 ├── pipeline.py            # 三码比对 + 瑕疵检测流水线
 ├── mes_db.py              # MES-ID 映射查询
 ├── QRDecode.py            # 二维码 / 条码解码（支持中文路径读图）
+├── label_parser.py        # LabelImg 标注文件解析器（新增）
 ├── train.py               # YOLOv11 训练入口
 ├── MES-ID.cgf             # MES 映射表（QR → 条码 → 质检标记）
 ├── requirements.txt
+├── 使用标注文件说明.md   # LabelImg 标注使用指南（新增）
 ├── data/                  # 演示采集图
 │   ├── front/             # {id}-1.jpg  正面
+│   │   └── annotations/   # {id}-1.xml  标注文件（可选）
 │   ├── back/              # {id}-2.jpg  背面
 │   └── side/              # {id}-3.jpg  侧面
 ├── yolo_dataset_split/    # YOLO 训练数据与 data.yaml（自备）
@@ -69,7 +73,7 @@ JuShen-xiaci-detect/
 | 正面 QR | 工件主身份 ID |
 | 条码 | 侧面/背面应一致的 Code128 内容 |
 | 质检标记 | `1` 良品，`0` 不良（可与视觉结果对照） |
-| `x:y` | 可选缺陷点坐标，便于标注与复盘 |
+| `x:y` | 可选缺陷点坐标，便于标注与复盘（仅在无 `.xml` 标注文件时使用） |
 
 示例：
 
@@ -77,6 +81,46 @@ JuShen-xiaci-detect/
 qjG8o3TPd1Z,9C0EA9EC,1
 OqfSJH6wKG5,842ccafd,0,320:180
 ```
+
+## 瑕疵标注方式（二选一）
+
+### 方式1：使用 LabelImg 标注文件（推荐）
+
+使用 LabelImg 工具对正面图像进行精确标注，生成 PASCAL VOC 格式的 `.xml` 文件。
+
+**优势**：
+- ✅ 精确的瑕疵边界框
+- ✅ 支持多个瑕疵
+- ✅ 显示瑕疵类别名称
+- ✅ 便于修改和调整
+
+**使用方法**：参见 [使用标注文件说明.md](./使用标注文件说明.md)
+
+```bash
+# 安装 LabelImg
+pip install labelimg
+
+# 启动标注工具
+labelimg data\front data\front\annotations
+```
+
+标注文件存放位置（任选其一）：
+- `data/front/{id}-1.xml`（同目录）
+- `data/front/annotations/{id}-1.xml`（推荐）
+- `data/front/labels/{id}-1.xml`
+
+### 方式2：使用 MES 配置坐标（快速）
+
+在 `MES-ID.cgf` 第4列及以后添加 `x:y` 坐标点。
+
+**示例**：
+```text
+OqfSJH6wKG5,842ccafd,0,320:180,450:200
+```
+
+**说明**：系统会在指定坐标周围生成固定大小的检测框。
+
+**检测优先级**：标注文件（`.xml`）> MES 配置坐标
 
 ## 环境与运行
 

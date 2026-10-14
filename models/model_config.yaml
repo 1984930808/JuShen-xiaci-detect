@@ -1,0 +1,27 @@
+# YOLOv11 瑕疵检测模型配置
+
+model:
+  type: yolov11n
+  task: detect
+  
+train:
+  data: yolo_dataset_split/data.yaml
+  epochs: 500
+  imgsz: 640
+  batch: 16
+  device: 0
+  
+inference:
+  conf: 0.25      # 置信度阈值
+  iou: 0.45       # NMS IOU阈值
+  max_det: 100    # 最大检测数量
+  
+classes:
+  - scratch      # 划痕
+  - dent         # 凹痕
+  - crack        # 裂纹
+  - stain        # 污渍
+  - bubble       # 气泡
+  - rust         # 锈蚀
+  - flaw         # 通用瑕疵
+  - defect       # 通用缺陷

@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import sys
+import threading
+import time
 import tkinter as tk
+from io import StringIO
 from pathlib import Path
 from tkinter import messagebox, ttk
 
@@ -15,6 +19,7 @@ from QRDecode import imread_unicode
 ROOT = Path(__file__).resolve().parent
 DATA_ROOT = ROOT / "data"
 MES_PATH = ROOT / "MES-ID.cgf"
+MODEL_PATH = ROOT / "models" / "best.pt"  # YOLO模型路径
 
 # 工业检测台风格
 COLORS = {
@@ -121,10 +126,12 @@ class App(tk.Tk):
         self.minsize(1000, 680)
         self.configure(bg=COLORS["bg"])
 
-        self.pipeline = InspectionPipeline(MES_PATH)
+        self.pipeline = InspectionPipeline(MES_PATH, MODEL_PATH)
         self.sample_ids = self._discover_samples()
         self.current_result: InspectionResult | None = None
+        self.is_inspecting = False  # 检测进行中标志
 
+        self._setup_menu()
         self._setup_styles()
         self._build_ui()
 
@@ -149,6 +156,76 @@ class App(tk.Tk):
             return (0, int(sid))
         except ValueError:
             return (1, sid)
+    
+    def _setup_menu(self):
+        """创建菜单栏。"""
+        menubar = tk.Menu(self)
+        self.config(menu=menubar)
+        
+        # 文件菜单
+        file_menu = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="文件", menu=file_menu)
+        file_menu.add_command(label="刷新样品列表", command=self._refresh_samples)
+        file_menu.add_separator()
+        file_menu.add_command(label="退出", command=self.quit)
+        
+        # 帮助菜单
+        help_menu = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="帮助", menu=help_menu)
+        help_menu.add_command(label="系统信息", command=self._show_system_info)
+        help_menu.add_command(label="关于", command=self._show_about)
+    
+    def _refresh_samples(self):
+        """刷新样品列表。"""
+        self.sample_ids = self._discover_samples()
+        self.sample_box.configure(values=self.sample_ids)
+        if self.sample_ids:
+            self.sample_var.set(self.sample_ids[0])
+            self.load_preview()
+        messagebox.showinfo("提示", f"已刷新，共 {len(self.sample_ids)} 个样品")
+    
+    def _show_system_info(self):
+        """显示系统信息。"""
+        try:
+            from system_info import get_system_info
+            info = get_system_info()
+            
+            info_text = "系统信息\n" + "=" * 40 + "\n\n"
+            for key, value in info.items():
+                info_text += f"{key}: {value}\n"
+            
+            info_text += "\n" + "=" * 40 + "\n"
+            info_text += f"MES 记录数: {len(self.pipeline.mes)}\n"
+            info_text += f"样品总数: {len(self.sample_ids)}\n"
+            info_text += f"模型路径: {MODEL_PATH}\n"
+            
+            messagebox.showinfo("系统信息", info_text)
+        except Exception as e:
+            messagebox.showerror("错误", f"获取系统信息失败: {e}")
+    
+    def _show_about(self):
+        """显示关于信息。"""
+        about_text = """
+具身智能瑕疵检测系统
+Version 1.2.0
+
+基于 YOLOv11 的工业视觉检测解决方案
+
+功能特性：
+• 三码比对（QR + Code128）
+• MES 数据库集成
+• 深度学习瑕疵检测
+• 实时结果可视化
+
+技术栈：
+• Python 3.8+
+• OpenCV 4.8+
+• Ultralytics YOLOv11
+• PyTorch
+
+© 2024 JuShen AI Lab
+        """
+        messagebox.showinfo("关于", about_text.strip())
 
     def _setup_styles(self):
         style = ttk.Style(self)
@@ -241,9 +318,10 @@ class App(tk.Tk):
 
         ttk.Button(ctrl, text="上一张", command=self.prev_sample).pack(side="left", padx=6)
         ttk.Button(ctrl, text="下一张", command=self.next_sample).pack(side="left")
-        ttk.Button(ctrl, text="开始检测", style="Accent.TButton", command=self.run_inspect).pack(
-            side="left", padx=(12, 0)
+        self.inspect_btn = ttk.Button(
+            ctrl, text="开始检测", style="Accent.TButton", command=self.run_inspect
         )
+        self.inspect_btn.pack(side="left", padx=(12, 0))
 
         # 三图区
         images = ttk.Frame(root, style="Root.TFrame")
@@ -389,15 +467,67 @@ class App(tk.Tk):
         if not sid:
             messagebox.showwarning("提示", "没有可检测的样品")
             return
-
-        try:
-            result = self.pipeline.inspect_sample_dir(DATA_ROOT, sid)
-        except Exception as exc:
-            messagebox.showerror("检测异常", str(exc))
+        
+        if self.is_inspecting:
+            messagebox.showinfo("提示", "检测正在进行中，请稍候...")
             return
 
+        # 在后台线程执行检测，避免界面冻结
+        self.is_inspecting = True
+        self.inspect_btn.configure(text="检测中...", state="disabled")
+        self._set_detail(f"正在检测样品 {sid}...\n请稍候，检测需要一定时间完成。")
+        
+        # 重置步骤状态为待检
+        for badge in self.step_vars.values():
+            badge.configure(text="待检", bg=COLORS["pending"])
+        
+        def inspect_thread():
+            """后台检测线程。"""
+            # 捕获标准输出
+            old_stdout = sys.stdout
+            sys.stdout = captured_output = StringIO()
+            
+            start_time = time.time()
+            try:
+                result = self.pipeline.inspect_sample_dir(DATA_ROOT, sid)
+                elapsed = time.time() - start_time
+                
+                # 恢复标准输出
+                sys.stdout = old_stdout
+                output = captured_output.getvalue()
+                
+                # 在主线程更新UI
+                self.after(0, lambda: self._on_inspect_complete(result, output, elapsed))
+            except Exception as exc:
+                sys.stdout = old_stdout
+                output = captured_output.getvalue()
+                self.after(0, lambda: self._on_inspect_error(exc, output))
+        
+        threading.Thread(target=inspect_thread, daemon=True).start()
+    
+    def _on_inspect_complete(self, result: InspectionResult, output: str, elapsed: float):
+        """检测完成回调（主线程）。"""
         self.current_result = result
         self._render_result(result)
+        
+        # 在详细信息中追加控制台输出
+        current_detail = self.detail_text.get("1.0", "end-1c")
+        self.detail_text.configure(state="normal")
+        self.detail_text.insert("end", f"\n\n--- 检测日志 (总耗时: {elapsed:.2f}s) ---\n")
+        self.detail_text.insert("end", output)
+        self.detail_text.configure(state="disabled")
+        
+        self.is_inspecting = False
+        self.inspect_btn.configure(text="开始检测", state="normal")
+    
+    def _on_inspect_error(self, exc: Exception, output: str):
+        """检测错误回调（主线程）。"""
+        self.is_inspecting = False
+        self.inspect_btn.configure(text="开始检测", state="normal")
+        
+        error_msg = f"检测异常:\n{str(exc)}\n\n--- 日志 ---\n{output}"
+        self._set_detail(error_msg)
+        messagebox.showerror("检测异常", str(exc))
 
     def _render_result(self, result: InspectionResult):
         # 图像
@@ -475,6 +605,14 @@ class App(tk.Tk):
 def main():
     if not MES_PATH.exists():
         raise SystemExit(f"找不到 MES 文件: {MES_PATH}")
+    
+    # 显示启动画面
+    try:
+        from splash import show_splash
+        show_splash(duration=2.0)
+    except Exception as e:
+        print(f"启动画面加载失败: {e}")
+    
     app = App()
     app.mainloop()
 

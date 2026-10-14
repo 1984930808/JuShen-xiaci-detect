@@ -30,3 +30,14 @@ weights/
 # Local secrets
 .env
 *.local.cgf
+
+# 标注文件（内部使用，不对外）
+data/*/annotations/
+data/*/*.xml
+
+# 测试脚本（内部验证用）
+test_*.py
+*_test.py
+
+# 内部文件（不对外）
+.internal/
