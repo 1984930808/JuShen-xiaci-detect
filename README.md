@@ -154,7 +154,59 @@ python app.py
 python train.py
 ```
 
-训练参数（轮数、增强、损失权重等）可在 `train.py` 中按产线数据调整。训练完成后，将 `best.pt` 接入 `pipeline` 推理接口即可。
+训练参数（轮数、增强、损失权重等）可在 `train.py` 中按产线数据调整。训练完成后，将 `best.pt` 放到 `models/` 目录即可。
+
+**注意**：首次运行时如果 `models/best.pt` 不存在，系统会自动使用配置模式（基于LabelImg标注文件），不影响功能演示。
+
+## 运行测试
+
+```bash
+# 安装开发依赖
+pip install -r requirements-dev.txt
+
+# 运行单元测试
+python scripts/run_tests.py
+
+# 或直接使用pytest
+pytest tests/ -v
+
+# 运行带覆盖率报告的测试
+pytest tests/ --cov=. --cov-report=html
+```
+
+测试覆盖：
+- ✅ MES数据库查询
+- ✅ QR码/条码识别
+- ✅ 三码比对逻辑
+- ✅ 完整检测流程
+- ✅ 性能基准测试
+
+详细测试指南：[开发文档](docs/development/testing.md)
+
+## 模型文件说明
+
+**重要**：由于模型文件较大（约50-200MB），本仓库默认不包含预训练权重。
+
+### 获取模型文件的三种方式
+
+**方式1：自行训练（推荐）**
+```bash
+# 准备YOLO格式数据集
+# 配置 yolo_dataset_split/data.yaml
+python train.py
+# 训练完成后，权重自动保存到 runs/jushenzhineng/weights/best.pt
+# 复制到模型目录
+cp runs/jushenzhineng/weights/best.pt models/best.pt
+```
+
+**方式2：使用配置模式（无需模型）**
+- 无需模型文件，系统会自动使用LabelImg标注文件模拟检测
+- 适合功能演示和流程验证
+- 需要提前标注瑕疵位置（`data/front/annotations/*.xml`）
+
+**方式3：下载预训练模型**
+- [待发布] 将在GitHub Release页面提供预训练权重
+- 支持的场景：金属表面划痕、污渍、变形等常见工业瑕疵
 
 ## 检测流水线说明
 
@@ -260,6 +312,31 @@ JuShen AI Lab, "JuShen Defect Detection System: Three-Code Matching and Visual D
 
 详见 [LICENSE](LICENSE) 文件。
 
+## 模型文件说明
+
+**重要**：由于模型文件较大（约50-200MB），本仓库默认不包含预训练权重。
+
+### 获取模型文件的方式
+
+**方式1：自行训练（推荐）**
+```bash
+# 准备YOLO格式数据集
+# 配置 yolo_dataset_split/data.yaml
+python train.py
+# 训练完成后，权重自动保存到 runs/jushenzhineng/weights/best.pt
+# 复制到模型目录
+cp runs/jushenzhineng/weights/best.pt models/best.pt
+```
+
+**方式2：使用配置模式**
+- 无需模型文件，系统会自动使用LabelImg标注文件模拟检测
+- 适合功能演示和流程验证
+- 需要提前标注瑕疵位置（`data/front/annotations/*.xml`）
+
+**方式3：下载预训练模型**
+- [待发布] 将在GitHub Release页面提供预训练权重
+- 支持的场景：金属表面划痕、污渍、变形等常见工业瑕疵
+
 ## 贡献指南
 
 我们欢迎各种形式的贡献！包括但不限于：
@@ -280,6 +357,9 @@ JuShen AI Lab, "JuShen Defect Detection System: Three-Code Matching and Visual D
 
 完整的技术文档位于 [`docs/`](docs/) 目录：
 - [安装指南](docs/installation.md)
+- [快速入门](docs/quick-start.md)
+- [常见问题](docs/faq.md)
+- [数据标注指南](docs/dataset/labeling.md)
 - [API 文档](docs/api/)
 - [开发指南](docs/development/)
 - [部署文档](docs/deployment/)

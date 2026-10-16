@@ -31,10 +31,20 @@ weights/
 .env
 *.local.cgf
 
+# Coverage reports
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
 
-# 测试脚本（内部验证用）
-test_*.py
-*_test.py
+# pytest
+.pytest_cache/
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
 
 # 内部文件（不对外）
 .internal/

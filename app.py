@@ -1,4 +1,4 @@
-"""巨神瑕疵检测 — 三码比对 + 瑕疵检测界面。"""
+"""具身瑕疵检测 — 三码比对 + 瑕疵检测界面。"""
 
 from __future__ import annotations
 
@@ -287,7 +287,7 @@ Version 1.2.0
         # 顶栏
         top = ttk.Frame(root, style="Root.TFrame")
         top.pack(fill="x", pady=(0, 12))
-        ttk.Label(top, text="巨神瑕疵检测", style="Head.TLabel").pack(side="left")
+        ttk.Label(top, text="具身瑕疵检测", style="Head.TLabel").pack(side="left")
         ttk.Label(
             top,
             text="  流程：正面QR → MES查表 → 侧面/背面条码比对 → 瑕疵检测",
